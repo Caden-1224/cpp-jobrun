@@ -1,0 +1,13 @@
+# 构建产物
+/build/
+build/
+*.o
+*.a
+
+# 程序运行时生成的报告
+jobrun-report.txt
+
+# 编辑器
+.vscode/
+.idea/
+compile_commands.json
