@@ -6,9 +6,9 @@
 ![CMake](https://img.shields.io/badge/build-CMake-064F8C)
 ![dependencies](https://img.shields.io/badge/dependencies-0%20(only%20pthread)-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
-![lines](https://img.shields.io/badge/lines-2220%20%2F%20394%20comments-lightgrey)
+![lines](https://img.shields.io/badge/lines-4466%20%2F%202689%20comments-lightgrey)
 
-零第三方依赖 · 只用标准库 + POSIX · 自带自检 · 每个知识点都在代码里标了出来
+零第三方依赖 · 只用标准库 + POSIX · 自带自检 · 每个语法点、每个 API 的参数都在注释里讲清楚
 
 ---
 
@@ -31,6 +31,49 @@
 教程里的例子也救不了场：它们全都活在一个 `main` 里，没有头文件，没有 CMake，没有 `fork`，没有僵尸进程，没有管道。你学的那一整套东西，根本没有出场的机会。
 
 **这个仓库就是中间那段空白，而且它比上一版更狠：这一版里没有任何东西是模拟的。**
+
+### 这份代码是写给「只会 C」的人的
+
+如果你能看懂 C，但看到 `std::move`、`unique_ptr`、虚函数、模板就发怵，这份代码的注释就是为你写的。每个文件开头都有一块 **「给只会 C 的你」**，把 C 的写法和 C++ 的写法并排放在一起；每个不那么显然的地方，都按下面几种标记展开：
+
+| 标记 | 回答什么问题 |
+| --- | --- |
+| `【语法】` | 这行 C++ 的语法规则是什么？和 C 的写法差在哪？ |
+| `【规则】` | 编译器强制你遵守什么？违反了会怎样（编译错、链接错、未定义行为）？ |
+| `【C 对照】` | 同样的功能，C 里通常怎么写？C++ 多解决了什么问题？ |
+| `【API】` | 这个系统调用/标准库函数的参数、返回值、errno 分别是什么？ |
+| `【扩展】` | 还有哪些相关 API / 新标准 / 替代方案？什么时候该换？ |
+| `【知识点】` | 这个设计为什么存在？不这么写会出什么事？ |
+| `【坑】` | 常见错误、容易踩的边界，以及怎么绕开。 |
+
+比如 `Fd` 这个类，注释会先告诉你 C 里要写 `open` + 每个 `return` 前 `close`，再告诉你 C++ 的 `Fd` 为什么能保证「忘记 close」这件事不可能发生；然后展开 `explicit`、`noexcept`、`= delete`、Rule of Five 各自的规则，最后给出 `open` / `openat` / `memfd_create` 的参数速查。
+
+**建议的阅读顺序**（从「C 里也见过」走到「C++ 独有」）：
+
+1. `fd.hpp` + `fd.cpp` —— RAII、移动语义、Rule of Five（最短、最完整）
+2. `queue.hpp` —— 模板、mutex、condition_variable（并发入门）
+3. `job.hpp` + `job.cpp` —— 虚函数、`std::function`、lambda（多态）
+4. `process.hpp` + `process.cpp` —— fork/exec/pipe/poll/waitpid（系统编程核心）
+5. `signals.hpp` + `signals.cpp` —— sigaction、self-pipe、async-signal-safe
+6. `runner.hpp` + `runner.cpp` —— 线程池、atomic、lock_guard
+7. `report.hpp` + `report.cpp` —— operator<<、UTF-8、ostringstream
+8. `main.cpp` + `tests/selfcheck.cpp` —— 参数解析、short write、测试
+9. `CMakeLists.txt` —— 从 `g++ a.cpp` 到多目标构建
+
+**C → C++ 十行速查**（每一行在代码里都有完整展开）：
+
+| 你在 C 里写 | 这里对应的 C++ | 先读哪儿 |
+| --- | --- | --- |
+| `struct` + 一组 `foo_do()` 函数 | `class` + 成员函数 + 访问控制 | `fd.hpp` |
+| `int fd` + 每个 `return` 前 `close` | `Fd`，析构自动 `close` | `fd.hpp` / `fd.cpp` |
+| 函数指针表 + `void *impl` | `virtual` + 虚析构 + `unique_ptr<Job>` | `job.hpp` |
+| `malloc` / `free` | `std::make_unique` / 容器 / RAII | `job.hpp`、`queue.hpp` |
+| `char buf[256]` + `snprintf` | `std::string` / `std::ostringstream` | `report.cpp` |
+| `void *` + `sizeof` 的通用容器 | `template <typename T>` | `queue.hpp` |
+| `pthread_create` / `pthread_mutex_*` | `std::thread` / `mutex` / `condition_variable` | `runner.cpp` |
+| 返回值 + `errno` / 输出参数 | 异常、`std::optional`、按值返回结构体 | `process.hpp`、`fd.cpp` |
+| `g++ a.c b.c -lpthread` | CMake `target_*` + `Threads::Threads` | `CMakeLists.txt` |
+| 手工 `ar rcs lib.a *.o` | `add_library(... STATIC ...)` | `CMakeLists.txt` |
 
 ---
 
@@ -108,34 +151,40 @@ Rust 那版可以模拟调度，因为调度本质上是"数据 + 规则"。但 
 
 ## 四、你会在这里用到哪些 C++ 知识
 
-这次是真的"一次性囊括"——速成班讲过的每个概念都有一处**非它不可**的落点：
+这次是真的"一次性囊括"——速成班讲过的每个概念都有一处**非它不可**的落点。而且不止"用到"：每个文件的头部有一整块【语法清单】，每个声明前有【语法】【规则】【C 对照】，每个系统调用前有【API】参数表 + errno + 【扩展】。**把注释当正文读，代码只是例子。**
 
 | 知识点 | 在代码里 | 为什么这里绕不开 |
 | --- | --- | --- |
 | 头文件 / 分离编译 / 编译单元 | `include/` + `src/` | 7 个模块各自编译成 `.o`，靠链接器拼起来 |
 | 声明与定义分离 | 每个 `.hpp` / `.cpp` 对 | 头文件只写"有什么"，实现在 `.cpp` |
 | `#pragma once` / ODR | 所有头文件 | 同一实体全程序只能定义一次，否则链接报重定义 |
-| 命名空间 | `namespace jobrun` | 把名字关起来，不和别人撞 |
+| 命名空间 / 匿名 namespace | `namespace jobrun`、各 `.cpp` | 前者防撞名，后者等价于 C 的 `static` |
 | **RAII** | `Fd` / `ChildProcess` / `SignalWatcher` | 析构即 `close` / 即 `waitpid`：把"不能忘的事"交给编译器 |
-| **移动语义** | `Fd::Fd(Fd&&)`、`std::move` | 管道只能有一个主人，"搬走"和"复制"是两件事 |
+| **移动语义 / 右值引用** | `Fd::Fd(Fd&&)`、`std::move` | 管道只能有一个主人，"搬走"和"复制"是两件事 |
 | **Rule of Five** | `Fd` 删掉拷贝、自己写移动 | 默认拷贝会造成两次 `close`，第二次关掉的可能是别人的 fd |
+| `explicit` / `= delete` / `= default` | `Fd`、`ChildProcess`、`Runner` | 阻止隐式转换、明确禁用拷贝、让意图成为接口 |
 | 继承 + 虚函数 + 纯虚接口 | `Job` → `ShellJob` / `BuiltinJob` | "怎么执行"是变化点，`run()` 交给子类 |
-| 虚析构 | `virtual ~Job() = default` | 通过 `Job*` 删除子类，析构不虚就泄漏 |
+| 虚析构 / `override` / `final` | `virtual ~Job()`、两个子类 | 通过 `Job*` 删除子类；`override` 让签名写错直接编译失败 |
 | 智能指针 | `unique_ptr<Job>` | 多态持有 + 唯一所有权，`std::move` 明确表达"交出去了" |
 | 模板 | `BoundedQueue<T>`（头文件即实现） | 元素类型由使用处决定，所以实现必须能被看到 |
-| `std::function` | `BuiltinJob::Body` | 类型擦除：lambda、函数指针、绑定过的成员函数都能装 |
-| 异常 | `std::system_error(errno)`、`try/catch` | 系统调用失败抛异常；作业失败不是异常，是数据 |
-| 异常安全 | `ChildProcess` 析构兜底 | 中途抛异常也不会留下僵尸 |
+| `std::function` / 类型擦除 | `BuiltinJob::Body` | lambda、函数指针、绑定过的成员函数都能装 |
+| 异常 / `noexcept` / 异常安全 | `std::system_error(errno)`、`try/catch` | 系统调用失败抛异常；作业失败不是异常，是数据 |
 | `const` 正确性 / `mutable` | 全篇；`BoundedQueue::mutex_` | `const` 方法要加锁，所以 mutex 必须 mutable |
+| 引用 / `const` 引用 / 按值返回 | 几乎每个函数签名 | 不拷贝、不拥有、能绑临时对象；返回值靠 RVO/移动 |
 | `operator<<` 重载 | `RunState` / `RunStats` | 自定义类型也能像内置类型一样被打印 |
 | lambda 与捕获 | 参数解析、worker、`make_default_jobs` | 按引用捕获让 `++i` 影响外层；按值捕获独立存起来 |
+| 结构化绑定 | `auto [out_read, out_write] = make_pipe()` | 一次拆开 pair，省掉 `.first` / `.second` |
+| `std::optional` | `BoundedQueue::pop`、`try_reap` | 把"可能没有值"写进类型，调用方无法忘记检查 |
 | STL | `vector` / `deque` / `optional` / `string` / `chrono` | 各司其职，不是为了用而用 |
-| `<algorithm>` | `std::sort` 按提交序号重排 | 并发结果要有确定顺序 |
-| **`std::thread`** | `Runner` 的 worker 线程池 | 并发执行 |
+| `<algorithm>` | `std::sort` 按提交序号重排 | 并发结果要有确定顺序；比较器必须满足严格弱序 |
+| **`std::thread`** | `Runner` 的 worker 线程池 | 并发执行；`join` / `detach` / 析构 terminate 的规则 |
 | **`std::mutex` / `lock_guard` / `unique_lock`** | 结果收集、日志、队列 | `lock_guard` 够用的地方别用 `unique_lock` |
 | **`std::condition_variable`** | `BoundedQueue` 的两个条件变量 | 生产者消费者的核心；必须用带谓词的 `wait` |
-| **`std::atomic<bool>`** | 全局停止标志 | 一个线程置位，所有线程立刻看见 |
+| **`std::atomic<bool>`** | 全局停止标志 | 一个线程置位，所有线程立刻看见；relaxed 的边界在哪 |
+| iostream 格式控制 | `std::setw` / `std::left` / `std::fixed` | 哪些是粘性的、哪些只影响下一次输出 |
+| UTF-8 解码与显示宽度 | `report.cpp` 的 `display_width` | 中文占两列；按字节补空格会把表格弄歪 |
 | CMake 目标与依赖传播 | `jobrun_core` 静态库 | 两个可执行文件共用一份代码；`PUBLIC` vs `PRIVATE` |
+| 系统调用参数速查 | 每个 `::fork` / `::poll` / `::sigaction` 前 | 参数、返回值、errno、相关 API 一次讲清 |
 
 ---
 
@@ -189,16 +238,16 @@ cmake --build build -j                            # 编译
 
 | 文件 | 行数 | 负责什么 |
 | --- | --- | --- |
-| `include/jobrun/fd.hpp` + `src/fd.cpp` | 69 + 122 | **先读这个**：RAII 与移动语义的最小完整例子 |
-| `include/jobrun/process.hpp` + `src/process.cpp` | 123 + 498 | 全项目的心脏：fork / exec / pipe / poll / waitpid / 进程组 |
-| `include/jobrun/job.hpp` + `src/job.cpp` | 106 + 182 | `Job` 抽象基类、两种子类、默认作业清单 |
-| `include/jobrun/queue.hpp` | 106 | `BoundedQueue<T>`：模板 + 条件变量 + 优雅关闭 |
-| `include/jobrun/signals.hpp` + `src/signals.cpp` | 41 + 113 | self-pipe trick：把信号安全地送进主循环 |
-| `include/jobrun/runner.hpp` + `src/runner.cpp` | 67 + 207 | 线程池、信号观察线程、按序号重排 |
-| `include/jobrun/report.hpp` + `src/report.cpp` | 58 + 216 | `operator<<`、统计、UTF-8 宽度对齐的表格 |
-| `src/main.cpp` | 166 | 参数解析、文件写出、退出码 |
-| `tests/selfcheck.cpp` | 146 | 自检：反复跑，查 fd 泄漏 / 僵尸 / 分类 |
-| `CMakeLists.txt` | 84 | 静态库 + 两个可执行目标 |
+| `include/jobrun/fd.hpp` + `src/fd.cpp` | 271 + 256 | **先读这个**：RAII、移动语义、Rule of Five 的最小完整例子 |
+| `include/jobrun/process.hpp` + `src/process.cpp` | 288 + 745 | 全项目的心脏：fork / exec / pipe / poll / waitpid / 进程组 |
+| `include/jobrun/job.hpp` + `src/job.cpp` | 241 + 290 | `Job` 抽象基类、两种子类、默认作业清单 |
+| `include/jobrun/queue.hpp` | 268 | `BoundedQueue<T>`：模板 + 条件变量 + 优雅关闭 |
+| `include/jobrun/signals.hpp` + `src/signals.cpp` | 114 + 268 | self-pipe trick：把信号安全地送进主循环 |
+| `include/jobrun/runner.hpp` + `src/runner.cpp` | 154 + 383 | 线程池、信号观察线程、按序号重排 |
+| `include/jobrun/report.hpp` + `src/report.cpp` | 117 + 335 | `operator<<`、统计、UTF-8 宽度对齐的表格 |
+| `src/main.cpp` | 295 | 参数解析、文件写出、退出码 |
+| `tests/selfcheck.cpp` | 259 | 自检：反复跑，查 fd 泄漏 / 僵尸 / 分类 |
+| `CMakeLists.txt` | 182 | 静态库 + 两个可执行目标 |
 
 ---
 
@@ -319,10 +368,10 @@ jobrun 自检
 
 - **不是一个生产级的作业调度系统**。没有沙箱、没有资源隔离（cgroup）、没有持久化、没有网络。它是**一份练习**
 - **不是 C++ 语法教程**。语法不解释，只解释**取舍**。看不懂 `std::move` 的话，请先回去补速成班
-- **不是跨平台的**。`fork`、`poll`、`setpgid` 都是 POSIX，只能跑在 Linux/macOS/WSL 上。Windows 原生需要另一套（`CreateProcess` + IOCP）
+- **不是跨平台的**。`fork`、`poll`、`setpgid` 都是 POSIX，但本项目还用了 Linux 专有的 `pipe2` 和 `/proc/self/fd`，所以实际只能跑在 Linux / WSL 上。macOS 要先把这两处换掉（`pipe2` → `pipe` + `fcntl`，`/proc/self/fd` → 别的计数方式）。Windows 原生需要另一套（`CreateProcess` + IOCP）
 - **不是一份"标准答案"**。第七节那些 Level 3 的题目，我自己也没全做
 
-它的大小是刻意的：**2220 行里有 394 行是纯注释，小到一个下午能读完，大到能让你亲手摸到进程、线程、管道、信号这四样东西。**
+它的大小是刻意的：**4466 行里有 2689 行是注释（代码本体 1777 行）**。注释不是装饰，是正文：每个文件开头有语法清单，每个系统调用前有参数表 + errno + 相关 API，每个 C++ 特性和 C 的写法并排对照。认真读完 `fd` + `queue` + `process` 这三组，就足够把「只会 C」补到「能读懂并改写一个真实 C++ 程序」。
 
 ---
 
@@ -330,7 +379,7 @@ jobrun 自检
 
 - **C++17** 编译器（实测 g++ 11.4）
 - **CMake 3.16+**（实测 3.22）
-- Linux / macOS / WSL。用到 `pipe2`、`poll`、`setpgid`、`sigaction` 等 POSIX 接口
+- **Linux / WSL**。用到 `pipe2`、`/proc/self/fd` 等 Linux 接口，以及 `poll`、`setpgid`、`sigaction` 等 POSIX 接口
 - 无第三方依赖（只链接 pthread，`std::thread` 的底层）
 
 ## 许可
